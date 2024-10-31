@@ -1,0 +1,11 @@
+target/
+project/target/
+project/project/
+.bsp/
+.idea/
+.DS_Store
+logs/
+input_data/
+output_data/
+META-INF/
+.jvmopts
