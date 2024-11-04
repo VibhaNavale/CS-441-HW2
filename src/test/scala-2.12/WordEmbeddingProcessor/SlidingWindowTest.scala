@@ -1,15 +1,10 @@
 package WordEmbeddingProcessor
 
-import com.typesafe.config.ConfigFactory
 import org.apache.spark.sql.SparkSession
-import org.apache.spark.{SparkConf, SparkContext}
+import org.apache.spark.SparkContext
 import org.scalatest.BeforeAndAfter
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
-import org.mockito.Mockito._
-import org.mockito.ArgumentMatchers.any
-
-import scala.collection.mutable
 
 class SlidingWindowTest extends AnyFlatSpec with Matchers with BeforeAndAfter {
   private var spark: SparkSession = _
@@ -76,7 +71,7 @@ class SlidingWindowTest extends AnyFlatSpec with Matchers with BeforeAndAfter {
   }
 
   "createSlidingWindows" should "create sliding windows from tokens and embeddings" in {
-    val tokens = List("100167", "token2ID") // Use actual token IDs from your embeddings
+    val tokens = List("100167", "token2ID")
     val embeddings: Map[String, Array[Double]] = Map(
       "100167" -> Array(
         0.05487772077322006, -0.15203014016151428, 0.18662340939044952,
@@ -118,7 +113,6 @@ class SlidingWindowTest extends AnyFlatSpec with Matchers with BeforeAndAfter {
       ),
     )
 
-
     val slidingWindowsRDD = SlidingWindow.createSlidingWindows(tokens, embeddings, spark)
 
     // Collect the results
@@ -158,7 +152,7 @@ class SlidingWindowTest extends AnyFlatSpec with Matchers with BeforeAndAfter {
     // Collect the results
     val slidingWindows = slidingWindowsRDD.collect()
 
-    slidingWindows should have length 0 // Expect 1 sliding window as the other token is not found
+    slidingWindows should have length 0
     // slidingWindows(0)._1 shouldEqual Array("100167") // Only token 100167 should be included
   }
 }

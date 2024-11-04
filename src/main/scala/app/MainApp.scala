@@ -39,12 +39,17 @@ object MainApp {
       )
     }
 
-    // Initialize Spark session based on the mode
-    val spark = if (isEmr || isHdfs) {
-      SparkSession.builder.appName("EmbeddingApp").getOrCreate()
+    // Set up the SparkSession based on the execution mode
+    val sparkBuilder = SparkSession.builder().appName("EmbeddingApp")
+
+    if (!isLocal) {
+      // Do not set master for EMR; it will be managed by the cluster
+      // For HDFS or other distributed setups, Spark will handle it automatically
     } else {
-      SparkSession.builder.appName("EmbeddingApp").master("local[*]").getOrCreate()
+      sparkBuilder.master("local[*]") // Use local mode if specified
     }
+
+    val spark = sparkBuilder.getOrCreate()
 
     try {
       logger.info("Starting loading and processing embeddings.")
@@ -58,24 +63,20 @@ object MainApp {
       val windows = SlidingWindow.createSlidingWindows(tokens, embeddings, spark)
       logger.info(s"Created ${windows.count()} sliding windows.")
 
-      // Pass the SparkContext explicitly
       val outputSize = embeddings.head._2.length
-      val model = NeuralNetwork.buildModel(spark.sparkContext, outputSize)
+      val model = NeuralNetwork.buildModel(spark.sparkContext, outputSize, outputPath)
 
       logger.info("Model summary:\n" + model.getNetwork.summary())
 
-      // Train the model with the Spark session and the RDD of windows
-      NeuralNetwork.trainModel(spark, model, windows, outputSize)
+      // Train the model with the Spark session, the RDD of windows, and the output path
+      NeuralNetwork.trainModel(spark, model, windows, outputSize, outputPath)
 
       // Generate text using the trained model
       val generatedSentence = TextGenerator.generateSentence("Marilyn", model, 10, embeddings)
       println(s"Generated Sentence: $generatedSentence")
-    } catch {
-      case e: Exception =>
-        logger.error("An error occurred during processing", e)
+
     } finally {
       spark.stop()
-      logger.info("Spark session stopped.")
     }
   }
 }
