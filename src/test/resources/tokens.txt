@@ -1,0 +1,3 @@
+word1 [100167]
+word2 [token2ID]
+word3 [token3ID]

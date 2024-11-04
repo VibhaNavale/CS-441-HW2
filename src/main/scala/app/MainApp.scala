@@ -3,11 +3,7 @@ package app
 import WordEmbeddingProcessor.{NeuralNetwork, SlidingWindow}
 import com.typesafe.config.ConfigFactory
 import org.apache.spark.sql.SparkSession
-import org.deeplearning4j.spark.impl.multilayer.SparkDl4jMultiLayer
-import org.deeplearning4j.util.ModelSerializer
 import org.slf4j.LoggerFactory
-
-import java.io.File
 
 object MainApp {
   private val config = ConfigFactory.load()
@@ -52,16 +48,18 @@ object MainApp {
 
     try {
       logger.info("Starting loading and processing embeddings.")
+
       val embeddings = SlidingWindow.loadEmbeddings(inputPath, spark)
       logger.info(s"Loaded ${embeddings.size} embeddings from $inputPath")
 
       val tokens = SlidingWindow.loadTokens(tokensPath, spark)
+      logger.info(s"Loaded ${tokens.size} tokens from $tokensPath")
+
       val windows = SlidingWindow.createSlidingWindows(tokens, embeddings, spark)
+      logger.info(s"Created ${windows.count()} sliding windows.")
 
-     //  val inputSize = embeddings.head._2.length
+      // Pass the SparkContext explicitly
       val outputSize = embeddings.head._2.length
-
-      // Pass the SparkContext to buildModel
       val model = NeuralNetwork.buildModel(spark.sparkContext, outputSize)
 
       logger.info("Model summary:\n" + model.getNetwork.summary())
@@ -69,19 +67,15 @@ object MainApp {
       // Train the model with the Spark session and the RDD of windows
       NeuralNetwork.trainModel(spark, model, windows, outputSize)
 
-      saveModel(model, outputPath)
-
       // Generate text using the trained model
-      val generatedSentence = TextGenerator.generateSentence("romantic", model, 10, embeddings)
+      val generatedSentence = TextGenerator.generateSentence("Marilyn", model, 10, embeddings)
       println(s"Generated Sentence: $generatedSentence")
+    } catch {
+      case e: Exception =>
+        logger.error("An error occurred during processing", e)
     } finally {
       spark.stop()
+      logger.info("Spark session stopped.")
     }
-  }
-
-  private def saveModel(model: SparkDl4jMultiLayer, outputPath: String): Unit = {
-    val modelFile = new File(outputPath, "trained_model.zip")
-    ModelSerializer.writeModel(model.getNetwork, modelFile, true) // Save the underlying MultiLayerNetwork
-    logger.info(s"Model saved at ${modelFile.getAbsolutePath}")
   }
 }

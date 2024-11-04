@@ -30,6 +30,7 @@ lazy val root = (project in file("."))
 
       // Scala testing
       "org.scalatest" %% "scalatest" % "3.2.19" % Test,
+      "org.scalatestplus" %% "scalatestplus-mockito" % "1.0.0-M2" % Test,
       "org.mockito" %% "mockito-scala" % "1.17.37" % Test,
 
       // Neural network library
