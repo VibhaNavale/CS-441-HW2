@@ -3,7 +3,11 @@ package app
 import WordEmbeddingProcessor.{NeuralNetwork, SlidingWindow}
 import com.typesafe.config.ConfigFactory
 import org.apache.spark.sql.SparkSession
+import org.deeplearning4j.nn.multilayer.MultiLayerNetwork
+import org.deeplearning4j.util.ModelSerializer
 import org.slf4j.LoggerFactory
+
+import java.io.File
 
 object MainApp {
   private val config = ConfigFactory.load()
@@ -52,23 +56,33 @@ object MainApp {
       logger.info(s"Loaded ${embeddings.size} embeddings from $inputPath")
 
       val tokens = SlidingWindow.loadTokens(tokensPath, spark)
-      val windows = SlidingWindow.createSlidingWindows(tokens, embeddings)
+      val windows = SlidingWindow.createSlidingWindows(tokens, embeddings, spark)
 
       val inputSize = embeddings.head._2.length
       val outputSize = inputSize
       val model = NeuralNetwork.buildModel(inputSize, outputSize)
 
-      NeuralNetwork.trainModel(model, windows)
-      logger.info("Model training completed.")
+      logger.info("Model summary:\n" + model.summary())
 
-      saveModel(model, outputPath, spark)
+      NeuralNetwork.trainModel(model, windows)
+
+      saveModel(model, outputPath)
+
+      // Generate text using the trained model
+      val generatedSentence = TextGenerator.generateSentence("romantic", model, 10, embeddings)
+      println(s"Generated Sentence: $generatedSentence")
     } finally {
       spark.stop()
     }
   }
 
-  private def saveModel(model: Any, outputPath: String, spark: SparkSession): Unit = {
-    // Add logic to save the model
-    logger.info(s"Model saved at $outputPath")
+  private def saveModel(model: MultiLayerNetwork, outputPath: String): Unit = {
+    val outputDir = new File(outputPath)
+    if (!outputDir.exists()) {
+      outputDir.mkdirs()
+    }
+    val modelFile = new File(outputDir, "trained_model.zip")
+    ModelSerializer.writeModel(model, modelFile, true)
+    logger.info(s"Model saved at ${modelFile.getAbsolutePath}")
   }
 }
