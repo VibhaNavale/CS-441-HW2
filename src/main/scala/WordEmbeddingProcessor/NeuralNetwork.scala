@@ -1,92 +1,103 @@
 package WordEmbeddingProcessor
 
-import org.apache.spark.rdd.RDD
 import org.deeplearning4j.nn.conf.MultiLayerConfiguration
 import org.deeplearning4j.nn.conf.NeuralNetConfiguration
 import org.deeplearning4j.nn.conf.layers.{LSTM, RnnOutputLayer}
-import org.deeplearning4j.nn.multilayer.MultiLayerNetwork
-import org.deeplearning4j.optimize.listeners.{ScoreIterationListener, PerformanceListener, EvaluativeListener}
+import org.deeplearning4j.nn.weights.WeightInit
+import org.deeplearning4j.optimize.listeners.ScoreIterationListener
+import org.deeplearning4j.spark.api.TrainingMaster
+import org.deeplearning4j.spark.impl.multilayer.SparkDl4jMultiLayer
+import org.deeplearning4j.spark.impl.paramavg.ParameterAveragingTrainingMaster
 import org.nd4j.linalg.activations.Activation
 import org.nd4j.linalg.dataset.DataSet
-import org.nd4j.linalg.dataset.api.iterator.BaseDatasetIterator
-import org.nd4j.linalg.dataset.api.iterator.fetcher.BaseDataFetcher
 import org.nd4j.linalg.factory.Nd4j
 import org.nd4j.linalg.lossfunctions.LossFunctions
+import org.apache.spark.rdd.RDD
+import org.apache.spark.SparkContext
+import org.apache.spark.sql.SparkSession
 import org.slf4j.LoggerFactory
-import scala.jdk.CollectionConverters._
 
-class CustomDataFetcher(dataSetList: java.util.List[DataSet]) extends BaseDataFetcher {
-  private var index = 0
-  var features: org.nd4j.linalg.api.ndarray.INDArray = _
-  var labels: org.nd4j.linalg.api.ndarray.INDArray = _
-
-  override def fetch(batchSize: Int): Unit = {
-    cursor = index
-    totalExamples = dataSetList.size()
-
-    // Set the features and labels based on the current dataset at index
-    val dataSet = dataSetList.get(index)
-    features = dataSet.getFeatures
-    labels = dataSet.getLabels
-    index += 1
-  }
-
-  override def totalOutcomes(): Int = if (totalExamples > 0) dataSetList.get(0).getLabels.size(1).toInt else 0
-  override def reset(): Unit = { index = 0 }
-}
+import java.io.{File, IOException}
 
 object NeuralNetwork {
   private val logger = LoggerFactory.getLogger(getClass)
 
-  def buildModel(inputSize: Int, outputSize: Int): MultiLayerNetwork = {
+  def buildModel(sc: SparkContext, outputSize: Int): SparkDl4jMultiLayer = {
+    val inputSize = 50 // Input size for LSTM
     val conf: MultiLayerConfiguration = new NeuralNetConfiguration.Builder()
       .updater(new org.nd4j.linalg.learning.config.Adam(0.001))
+      .weightInit(WeightInit.XAVIER)
       .list()
-      .layer(0, new LSTM.Builder().nIn(inputSize).nOut(100)
+      .layer(0, new LSTM.Builder()
+        .nIn(inputSize) // Set input size for the LSTM layer
+        .nOut(100) // Hidden layer size
         .activation(Activation.TANH)
         .build())
       .layer(1, new RnnOutputLayer.Builder(LossFunctions.LossFunction.MCXENT)
         .activation(Activation.SOFTMAX)
-        .nIn(100).nOut(outputSize)
+        .nIn(100) // LSTM output size
+        .nOut(outputSize) // Number of output classes
         .build())
       .build()
 
-    val model = new MultiLayerNetwork(conf)
-    model.init()
+    // Configure TrainingMaster for distributed training
+    val tm: TrainingMaster[_, _] =
+      new ParameterAveragingTrainingMaster.Builder(1)
+        .workerPrefetchNumBatches(1)
+        .batchSizePerWorker(64) // Match the batch size
+        .averagingFrequency(3)
+        .build()
 
-    // Create your dataSetIterator
-    val dataSetList = new java.util.ArrayList[DataSet]() // Create an empty list for datasets
-    val fetcher = new CustomDataFetcher(dataSetList)
-    val dataSetIterator = new BaseDatasetIterator(1, dataSetList.size(), fetcher)
+    val sparkNet = new SparkDl4jMultiLayer(sc, conf, tm)
+    sparkNet.setListeners(new ScoreIterationListener(10))
 
-    // Listeners for various metrics
-    model.setListeners(
-      new ScoreIterationListener(10),          // Logs loss every 10 iterations
-      new PerformanceListener(1, true),        // Logs performance (time and memory) every iteration
-      new EvaluativeListener(dataSetIterator, 1) // Use dataSetIterator for evaluation
-    )
-    model
+    sparkNet
   }
 
-  def trainModel(model: MultiLayerNetwork, windowsRDD: RDD[(Array[String], Array[Array[Double]])]): Unit = {
-    val featuresAndLabelsRDD = windowsRDD.map {
-      case (_, vectors) if vectors.nonEmpty && vectors.head.length == 50 =>
-        val features = Nd4j.create(vectors).reshape(1, vectors.length, 50)
-        val labels = Nd4j.zeros(1, vectors.length, 50) // Adjust based on your labels
-        new DataSet(features, labels)
+  def trainModel(spark: SparkSession, sparkNet: SparkDl4jMultiLayer, windowsRDD: RDD[(Array[String], Array[Array[Double]])], outputSize: Int): Unit = {
+    val sc: SparkContext = spark.sparkContext
+    val modelPath = "model.zip"
+    val modelFolder = new File(modelPath)
+
+    if (modelFolder.exists()) {
+      try {
+        modelFolder.delete()
+        logger.info(s"Deleted existing model folder at $modelPath.")
+      } catch {
+        case e: IOException =>
+          logger.error(s"Failed to delete existing model folder: ${e.getMessage}")
+      }
     }
 
-    val dataSetList = featuresAndLabelsRDD.collect().toList.asJava
-    val fetcher = new CustomDataFetcher(dataSetList)
-    val dataSetIterator = new BaseDatasetIterator(1, dataSetList.size(), fetcher)
+    // Define your window size (time steps)
+    val windowSize = 10
+    val featuresAndLabelsRDD = windowsRDD.flatMap {
+      case (_, vectors) if vectors.nonEmpty && vectors.head.length == 50 =>
+        val numSamples = vectors.length - windowSize + 1 // Calculate number of samples based on window size
+        val batchSize = 64 // This is the number of samples in a batch
 
-    val startTime = System.currentTimeMillis()
-    model.fit(dataSetIterator)
-    val endTime = System.currentTimeMillis()
+        // Create a list to hold DataSets
+        val dataSets = for (i <- 0 until numSamples) yield {
+          // Extract a window of data
+          val featureWindow = vectors.slice(i, i + windowSize)
+          val features = Nd4j.create(featureWindow).reshape(1, 50, windowSize) // Reshape to (batchSize, features, windowSize)
 
-    // Time per Epoch
-    logger.info(s"Epoch time: ${endTime - startTime}ms")
+          // Create labels for this sample (this is just a placeholder, adjust according to your needs)
+          val labels = Nd4j.zeros(1, outputSize, windowSize) // Ensure this matches your output size
 
-    println("Training complete.")
+          new DataSet(features, labels) // Create DataSet for the current window
+        }
+
+        // Convert the sequence of DataSets to an RDD
+        Some(dataSets) // Wrap in Option to handle empty cases
+      case _ => None // Filter out any invalid entries
+    }.flatMap(identity) // Flatten the sequences into a single RDD of DataSets
+
+    // Perform distributed training
+    sparkNet.fit(featuresAndLabelsRDD)
+
+    // Save the model if needed
+    sparkNet.getNetwork.save(modelFolder, true)
+    println(s"Model saved at ${modelFolder.getAbsolutePath}")
   }
 }

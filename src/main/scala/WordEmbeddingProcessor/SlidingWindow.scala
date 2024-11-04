@@ -3,9 +3,11 @@ package WordEmbeddingProcessor
 import org.apache.spark.mllib.rdd.RDDFunctions.fromRDD
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.rdd.RDD
+import org.slf4j.LoggerFactory
 
 object SlidingWindow {
-  private val windowSize: Int = 3 // Adjust window size based on task
+  private val logger = LoggerFactory.getLogger(getClass)
+  private val windowSize: Int = 10 // Adjust window size based on task
 
   def loadEmbeddings(filePath: String, spark: SparkSession): Map[String, Array[Double]] = {
     val embeddingsRDD = spark.sparkContext.textFile(filePath)
@@ -29,18 +31,24 @@ object SlidingWindow {
 
   def createSlidingWindows(tokens: List[String], embeddings: Map[String, Array[Double]], spark: SparkSession): RDD[(Array[String], Array[Array[Double]])] = {
     val tokensRDD = spark.sparkContext.parallelize(tokens)
-    tokensRDD.sliding(windowSize)
+    val slidingWindows = tokensRDD.sliding(windowSize)
       .map { windowTokens =>
         val embeddedVectors = windowTokens.flatMap(embeddings.get)
         if (embeddedVectors.length == windowSize) {
           val positionalEmbeddings = computePositionalEmbedding(windowSize)
-          val positionAwareEmbedding = embeddedVectors.zip(positionalEmbeddings).map { case (vec, pos) => vec.zip(pos).map { case (v, p) => v + p } }
+          val positionAwareEmbedding = embeddedVectors.zip(positionalEmbeddings).map { case (vec, pos) =>
+            vec.zip(pos).map { case (v, p) => v + p }
+          }
+          // Log the shape of the created window
+          logger.info(s"Created window with tokens: ${windowTokens.mkString(", ")}; Shape: (${windowTokens.length}, ${positionAwareEmbedding.length}, ${positionAwareEmbedding.head.length})")
           (windowTokens, positionAwareEmbedding)
         } else {
           (Array.empty[String], Array.empty[Array[Double]])
         }
       }
       .filter { case (_, vectors) => vectors.nonEmpty }
+
+    slidingWindows
   }
 
   def computePositionalEmbedding(windowSize: Int): List[Array[Double]] = {

@@ -34,6 +34,8 @@ lazy val root = (project in file("."))
 
       // Neural network library
       "org.deeplearning4j" % "deeplearning4j-core" % "1.0.0-M2.1",
+      "org.deeplearning4j" % "deeplearning4j-ui" % "1.0.0-M2.1",
+      "org.deeplearning4j" %% "dl4j-spark" % "1.0.0-M2.1",
       "org.nd4j" % "nd4j-native" % "1.0.0-M2.1",
       "org.nd4j" % "nd4j-api" % "1.0.0-M2.1",
 ),
