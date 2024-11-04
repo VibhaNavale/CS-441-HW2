@@ -18,7 +18,7 @@ import org.apache.spark.SparkContext
 import org.apache.spark.sql.SparkSession
 import org.deeplearning4j.nn.api.Model
 import org.slf4j.LoggerFactory
-
+import org.apache.hadoop.fs.{FileSystem, Path}
 import java.io.{File, FileWriter, IOException}
 
 object NeuralNetwork {
@@ -26,7 +26,7 @@ object NeuralNetwork {
   private val config = ConfigFactory.load()
 
   class CustomListener(initialLearningRate: Double, outputPath: String) extends ScoreIterationListener(10) {
-    private val outputFile = new File(s"$outputPath/training_metrics.txt")
+    private val metricsFileName = "training_metrics.txt"
 
     override def iterationDone(model: Model, iteration: Int, epoch: Int): Unit = {
       super.iterationDone(model, iteration, epoch)
@@ -41,13 +41,16 @@ object NeuralNetwork {
           println(output)
 
           try {
-            val writer = new FileWriter(outputFile, true)
-            writer.write(output)
-            writer.close()
+            val metricsPath = new Path(s"$outputPath/$metricsFileName")
+            val fs = FileSystem.get(sparkModel.getSparkContext.hadoopConfiguration)
+            val outputStream = fs.create(metricsPath, true)
+            outputStream.writeBytes(output)
+            outputStream.close()
           } catch {
             case e: IOException =>
               logger.error(s"Failed to write to output file: ${e.getMessage}")
           }
+
         case _ =>
           logger.error(s"Model is not an instance of SparkDl4jMultiLayer, received: ${model.getClass.getName}")
       }

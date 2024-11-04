@@ -39,7 +39,11 @@ lazy val root = (project in file("."))
       "org.deeplearning4j" %% "dl4j-spark" % "1.0.0-M2.1",
       "org.nd4j" % "nd4j-native" % "1.0.0-M2.1",
       "org.nd4j" % "nd4j-api" % "1.0.0-M2.1",
-),
+
+      // Jackson dependencies for compatibility
+      "com.fasterxml.jackson.core" % "jackson-databind" % "2.15.2",
+      "com.fasterxml.jackson.module" %% "jackson-module-scala" % "2.15.2",
+    ),
 
     resolvers ++= Seq(
       "Maven Central" at "https://repo1.maven.org/maven2/",

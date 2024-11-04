@@ -40,14 +40,14 @@ object MainApp {
     }
 
     // Set up the SparkSession based on the execution mode
-    val sparkBuilder = SparkSession.builder().appName("EmbeddingApp")
+    val sparkBuilder = SparkSession.builder().appName("EmbeddingApp").config("spark.master", "local")
 
-    if (!isLocal) {
-      // Do not set master for EMR; it will be managed by the cluster
-      // For HDFS or other distributed setups, Spark will handle it automatically
-    } else {
-      sparkBuilder.master("local[*]") // Use local mode if specified
-    }
+//    if (!isLocal) {
+//      // Do not set master for EMR; it will be managed by the cluster
+//      // For HDFS or other distributed setups, Spark will handle it automatically
+//    } else {
+//      sparkBuilder.master("local[*]") // Use local mode if specified
+//    }
 
     val spark = sparkBuilder.getOrCreate()
 
