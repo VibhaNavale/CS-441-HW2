@@ -105,3 +105,5 @@ These are run through the command `sbt test`
 
 ---
 
+Sample Model Summary:
+![Summary.png](Summary.png)
