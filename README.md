@@ -6,6 +6,7 @@
 Repo for the Spark Homework-2 for CS441 Fall 2024
 
 Project walkthrough:
+https://uic.zoom.us/rec/share/P8IU-n36-REEq8n7GFZKCC9ryJV42odo9-XWCgPerK0JTIrNQ8xVPbuplJf6Mefy.mn6l9BA-HfQitZwM
 
 ## Environment:
 **OS** : macOS (M3 Chip)
